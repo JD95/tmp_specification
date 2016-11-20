@@ -1,15 +1,21 @@
+{-# LANGUAGE DeriveFunctor #-}
+
 module Lib
     ( someFunc
     ) where
 
 import qualified Data.Functor.Foldable as F
+import Control.Arrow
+import Control.Monad
+import qualified Data.Map as Map
+import Data.Maybe
 
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
 
-newtype Id = Id String
+newtype Id = Id String deriving (Eq, Ord, Show)
 
-data Type a = INT 
+data Value a = INT
             | FLOAT
             | DOUBLE
             | CHAR
@@ -22,43 +28,45 @@ data Type a = INT
             | PTR a
             | REF a
             | STATIC a
-            | USR Id [(Id, Type a)] 
+            | USR Id [(Id, a)]
+            deriving Functor
 
-isInt :: Type Bool -> Bool
-isInt terp = outType >>> cata f
-             where f (INT) = True
-                   f (CONST b) = b
-                   f (PTR b) = b
-                   f (REF b) = b
-                   f (STATIC b) = b
-                   _ -> False
+isInt :: FValue -> Bool
+isInt = outValue >>> F.cata f
+         where f INT = True
+               f (CONST b) = b
+               f (PTR b) = b
+               f (REF b) = b
+               f (STATIC b) = b
+               f _ = False
 
 
 --   Fixed Type
-data FType = InType { outType :: F.Fix Type }
+data FValue = InValue { outValue :: F.Fix Value }
 
-data MetaValue = T FType
-               | SC (FType, String) -- FType MUST be STATIC (CONST a)
-               | MetaFunction ([Ftype] -> Either String Ftype)
+data MetaValue a = Template Id ([FValue] -> Either String a) -- ^ Function
+                 | Group Id [a] -- ^ A struct or record
+                 | Alias Id a -- using type = T;
+                 | Single Id FValue -- ^ static const int value = 5;
 
-data Expr a = Instantiation Id [FType]
-            | ScopeResolution a Id
+metaId (F.Fix (Template i _)) = i
+metaId (F.Fix (Group i _)) = i
+metaId (F.Fix (Alias i _)) = i
+metaId (F.Fix (Single i _)) = i
+
+newtype FMetaValue = InMetaValue { outMetaValue :: F.Fix MetaValue }
+
+data Expr a = Scope a Id -- someClass::value
+            | Instantiate Id [FValue] -- add<1,2>
+            | Type FValue
 
 
 --   Fixed Expression
-data FExpr = InExpr { out::F.Fix Expr }
+data FExpr = InExpr { outExpr::F.Fix Expr }
 
-data Stmt a = Using { usingName :: String
-                    , usingArgs :: [String]
-                    , usingExpr :: ([String] -> Maybe FExpr)
-                    }              
+data Stmt a = Using Id FExpr
 
-data Template = Template { tempName :: String
-                         , tempArgs :: TArgs
-                         , tempBody :: [(Id, MetaValue)]
-                         } deriving (Show)
-
-newtype SymbolTable = SymbolTable [(String, FType)]
+type SymbolTable = Map.Map Id FMetaValue
 
 {-
    In order to make working with the symbol table easier
@@ -67,7 +75,10 @@ newtype SymbolTable = SymbolTable [(String, FType)]
    table.
 -}
 
-newtype Scope t = Scope (SymbolTable -> t)
+data Symbols t = Definition (SymbolTable -> Either String (t, SymbolTable))
+               | Lookup (SymbolTable -> Either String t)
+               | Error String
+
 
 {-
    The first type will be the parameterized type Scope.
@@ -78,8 +89,8 @@ newtype Scope t = Scope (SymbolTable -> t)
    changing the table.
 -}
 
-instance Functor Scope where
-  fmap f ma = \tbl -> f (ma tbl)
+instance Functor Symbols where
+  fmap = liftM
 
 {-
     Functors are parametric types which can be mapped over
@@ -87,9 +98,9 @@ instance Functor Scope where
     fmap :: Functor f => (a -> b) -> (f a -> f b)
 -}
 
-instance Applicative Scope where
-  pure a = \tbl -> a
-  mf <*> a = \tbl -> (fmap (mf tbl) a) tbl
+instance Applicative Symbols where
+  pure a = Lookup . const $ Right a
+  (<*>) = ap
 
 {-
     Applicative types allow for function application within the
@@ -102,8 +113,18 @@ instance Applicative Scope where
     <*> :: Functor f => (a -> b) -> f a -> f b
 -}
 
-instance Monad Scope where
-  ma >>= f = \tbl -> f (ma tbl) tbl
+instance Monad Symbols where
+
+  Definition ma >>= f = Definition $ ma >=> \(a, tbl') ->
+    case f a of
+      Definition df -> df tbl'
+      Lookup lf -> fmap (flip (,) tbl') (lf tbl')
+
+  Lookup ma >>= f = Definition $ \tbl ->
+    case fmap f (ma tbl) of
+      Right (Definition df) -> df tbl
+      Right (Lookup lf) -> fmap (flip (,) tbl) (lf tbl)
+      Left e -> Left e
 
 {-
    Monads allow for composition of functions which return Functors.
@@ -162,39 +183,31 @@ instance Monad Scope where
 
 -}
 
-newtype Symbols t = Symbols (SymbolTable -> (t, SymbolTable))
-
-instance Functor Symbols where
-  fmap f ma = \tbl -> let (t, tbl') = ma tbl in (f t, tbl')
-
-instance Applicative Symbols where
-  pure a = \tbl -> (a, tbl)
-  mf <*> a = \tbl -> let (f, tbl') = mf tbl in (fmap f a) tbl'
-
-instance Monad Symbols where
-  ma >>= f = \tbl -> let (t, tbl') = ma tbl in (f s) tbl'
-
-table :: Scope SymbolTable
--- ^ A utility function to access the table in the Symbols Monad
-table = \s -> (s,s)
-
-lookup :: Id -> Scope (Maybe Ftype)
+lookup :: Id -> Symbols (Maybe FMetaValue)
 -- ^ Gets the type for an id
-lookup id = table >>= fmap (find id)
+lookup i = Lookup $ pure . Map.lookup i
 
-apply :: FExpr -> Scope (Maybe FType)
+define :: F.Fix MetaValue -> Symbols ()
+-- ^ Addes a symbol value pair to the symbol table
+define mv = Definition $ \tbl ->
+  if isNothing (Map.lookup (metaId mv) tbl)
+    then Right ((), Map.insert (metaId mv) (InMetaValue mv) tbl)
+    else Left $ "Unknown symbol " ++ (show . metaId $ mv)
+
+--apply :: FExpr -> Symbols (Maybe FValue)
 -- ^ Looks up the metavalue and attempts to apply it to the args
-apply (inExpr (Instance id args)) = fmap (<*> pure args) (lookup id)
-apply _ = pure (Nothing)
+--apply (InExpr (Instantiate id args)) = fmap (<*> pure args) (Lib.lookup id)
+--apply _ = Error "Can only apply an instantiate expression!"
 
-type Fix f = f (Fix f)
+-- type Fix f = f (Fix f)
+--
+-- project (Fix a) = a
+--
+-- cata :: (Type a -> a) -> Fix Type -> a
+-- cata f = c where c = f . fmap c . project
 
-project (Fix a) = a
 
-cata :: (Type a -> a) -> Fix Type -> a
-cata f = c where c = f . fmap c . project
-
-example = do
-  templateClass [Class "T"] "test" $ do
-    using [] "value" (Id "T")
-    using [] "result" (Const (Id "T))
+-- example = do
+--   templateClass [Class "T"] "test" $ do
+--     using [] "value" (Id "T")
+--     using [] "result" (Const (Id "T"))
