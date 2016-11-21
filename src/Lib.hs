@@ -9,6 +9,7 @@ import Control.Arrow
 import Control.Monad
 import qualified Data.Map as Map
 import Data.Maybe
+import Control.Monad.Free
 
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
@@ -28,26 +29,44 @@ data Value a = INT
             | PTR a
             | REF a
             | STATIC a
-            | USR Id [(Id, a)]
+            | USR Id
             deriving Functor
-
-isInt :: FValue -> Bool
-isInt = outValue >>> F.cata f
-         where f INT = True
-               f (CONST b) = b
-               f (PTR b) = b
-               f (REF b) = b
-               f (STATIC b) = b
-               f _ = False
-
 
 --   Fixed Type
 data FValue = InValue { outValue :: F.Fix Value }
 
-data MetaValue a = Template Id ([FValue] -> Either String a) -- ^ Function
-                 | Group Id [a] -- ^ A struct or record
-                 | Alias Id a -- using type = T;
-                 | Single Id FValue -- ^ static const int value = 5;
+instance Show FValue where
+  show = outValue >>> F.cata f
+         where f (INT) = "int"
+               f (FLOAT) = "float"
+               f (DOUBLE) = "double"
+               f (CHAR) = "char"
+               f (UINT) = "uint"
+               f (SHORT) = "short"
+               f (LONG) = "long"
+               f (VOID) = "void"
+               f (BOOL) = "bool"
+               f (CONST a) = "const " ++ a
+               f (PTR a) = a ++ "*"
+               f (STATIC a) = "static " ++ a
+               f (USR t) = t
+
+data MetaArg = Targ Id
+              | Tlist Id
+
+instance Show MetaArg where
+  show (Targ t) = "class " ++ t
+  show (Tlist t) = "class ..." ++ t
+
+data MetaFunc a = MetaFunc ([FValue] -> Either String a) -- ^ Function
+
+data MetaValue a = Template [MetaArg] (MetaFunc a)
+                 | Group (Free (Record a)) -- ^ A struct or record
+                 | Single FValue -- ^ static const int value = 5;
+
+data Record a next = Record (Id,a) next
+                   | EndRecord
+                     deriving (Functor)
 
 metaId (F.Fix (Template i _)) = i
 metaId (F.Fix (Group i _)) = i
@@ -55,6 +74,18 @@ metaId (F.Fix (Alias i _)) = i
 metaId (F.Fix (Single i _)) = i
 
 newtype FMetaValue = InMetaValue { outMetaValue :: F.Fix MetaValue }
+
+showCommaList = concat . intersperse "," . map show
+
+instance Show FMetaValue where
+  show = outMetaValue >> F.cata f
+         where f (Single v) = show v
+               f (Group vs) = concatMap (flip (++) "\n" . show) $ vs
+               f (Template args f) = "template<" ++ showCommaList args ++ ">"
+
+example = Template [Targ "T"] $ \args ->
+  case args of
+  [t] -> Group 
 
 data Expr a = Scope a Id -- someClass::value
             | Instantiate Id [FValue] -- add<1,2>
@@ -77,17 +108,6 @@ type SymbolTable = Map.Map Id FMetaValue
 
 data Symbols t = Definition (SymbolTable -> Either String (t, SymbolTable))
                | Lookup (SymbolTable -> Either String t)
-               | Error String
-
-
-{-
-   The first type will be the parameterized type Scope.
-   This type will represent functions that need to use
-   the symbol table in order to return a value.
-
-   Note that these functions do not have the capability of
-   changing the table.
--}
 
 instance Functor Symbols where
   fmap = liftM
