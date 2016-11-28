@@ -10,94 +10,140 @@ import Control.Monad
 import qualified Data.Map as Map
 import Data.Maybe
 import Control.Monad.Free
+import Data.List (nub, intercalate, find)
 
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
 
-newtype Id = Id String deriving (Eq, Ord, Show)
+newtype Id = Id String deriving (Eq, Ord)
 
-data Value a = INT
-            | FLOAT
-            | DOUBLE
-            | CHAR
-            | UINT
-            | SHORT
-            | LONG
-            | VOID
-            | BOOL
-            | CONST a
-            | PTR a
-            | REF a
-            | STATIC a
-            | USR Id
-              deriving Functor
+instance Show Id where
+  show (Id s) = s
 
---   Fixed Type
-data FValue = InValue { outValue :: F.Fix Value }
+data Value = INT
+           | IntLit Int
+           | FLOAT
+           | DOUBLE
+           | CHAR
+           | UINT
+           | SHORT
+           | LONG
+           | VOID
+           | BOOL
+           | BoolLit Bool
+           | CONST Value
+           | PTR Value
+           | REF Value
+           | STATIC Value
+           | USR Id
+             deriving (Eq, Ord)
 
-instance Show FValue where
-  show = outValue >>> F.cata f
-         where f (INT) = "int"
-               f (FLOAT) = "float"
-               f (DOUBLE) = "double"
-               f (CHAR) = "char"
-               f (UINT) = "uint"
-               f (SHORT) = "short"
-               f (LONG) = "long"
-               f (VOID) = "void"
-               f (BOOL) = "bool"
-               f (CONST a) = "const " ++ a
-               f (PTR a) = a ++ "*"
-               f (STATIC a) = "static " ++ a
-               f (USR t) = t
+
+instance Show Value where
+  show INT = "int"
+  show (IntLit a) = show a
+  show FLOAT = "float"
+  show DOUBLE = "double"
+  show CHAR = "char"
+  show UINT = "uint"
+  show SHORT = "short"
+  show LONG = "long"
+  show VOID = "void"
+  show BOOL = "bool"
+  show (BoolLit a) = show a
+  show (CONST a) = "const " ++ show a
+  show (PTR a) = show a ++ "*"
+  show (STATIC a) = "static " ++ show a
+  show (USR t) = show t
 
 data MetaArg = Targ Id
               | Tlist Id
 
+-- Makes the definitions look nicer
+class_ t = Targ (Id t)
+list_ t = Tlist (Id t)
+
 instance Show MetaArg where
-  show (Targ t) = "class " ++ t
-  show (Tlist t) = "class ..." ++ t
+  show (Targ t) = "class " ++ show t
+  show (Tlist t) = "class ..." ++ show t
 
-data MetaFunc a = MetaFunc ([FValue] -> Either String a) -- ^ Function
+data MetaValue = Template Id [MetaArg] ([Value] -> Either String MetaValue)
+                 | Group Id (Free (Line MetaValue) ()) -- ^ A struct or record
+                 | Single Id Value -- ^ static const int value = 5;
 
-data MetaValue a = Template [MetaArg] (MetaFunc a)
-                 | Group (Free (Record a)) -- ^ A struct or record
-                 | Single FValue -- ^ static const int value = 5;
+data Line a next = Line a next
+              | EndLine
+                deriving (Functor)
 
-data Record a next = Record (Id,a) next
-                   | EndRecord
-                     deriving (Functor)
+listFromLines :: Line a [a] -> [a]
+listFromLines (Line r rs) = r:rs
+listFromLines EndLine = []
 
-metaId (F.Fix (Template i _)) = i
-metaId (F.Fix (Group i _)) = i
-metaId (F.Fix (Alias i _)) = i
-metaId (F.Fix (Single i _)) = i
+collapseGroupMembers = iter listFromLines . fmap (const [])
 
-newtype FMetaValue = InMetaValue { outMetaValue :: F.Fix MetaValue }
+metaId (Template i _ _) = i
+metaId (Group i _) = i
+metaId (Single i _) = i
 
-showCommaList = concat . intersperse "," . map show
+showCommaList = intercalate "," . map show
 
-instance Show FMetaValue where
-  show = outMetaValue >> F.cata f
-         where f (Single v) = show v
-               f (Group vs) = concatMap (flip (++) "\n" . show) $ vs
-               f (Template args f) = "template<" ++ showCommaList args ++ ">"
+showGroupLines g@(Single i v) = [show g]
+showGroupLines g@(Template _ args _) = [show g]
+showGroupLines (Group i vs) = ["struct " ++ show i ++ "{"] ++ members ++ ["};"]
+  where members = concatMap (fmap ("\t" ++) . showGroupLines) . collapseGroupMembers $ vs
 
-example = Template [Targ "T"] $ \args ->
-  case args of
-  [t] -> Group 
+instance Show MetaValue where
+  show (Single i v) = show v ++ " " ++ show i
+  show (Group i vs) = "struct " ++ show i ++ "{\n" ++ concat members ++ "};\n"
+    where members = concatMap (fmap (\m -> "\t" ++ m ++ "\n") . showGroupLines) $ collapseGroupMembers vs
+  show (Template i args _) = "template<" ++ showCommaList args ++ "> " ++ show i
+
+single v i = Free (Line (Single (Id i) v) (Pure ()))
+
+group i vs = Free (Line (Group (Id i) vs) (Pure ()))
+
+template i args f = Free (Line (Template (Id i) args f) (Pure ()))
+
+testClass = Group (Id "testClass") $ do
+  single INT "x"
+  template "add" [class_ "T1", class_ "T2"] $ \args -> case args of
+      [IntLit x, IntLit y] -> Right $
+        Group (Id "add") $ single (IntLit (x + y)) "value"
+      _ -> Left "Add must have args of type int literal"
+  group "testSubClass" $ do
+    single DOUBLE "otherVar"
 
 data Expr a = Scope a Id -- someClass::value
-            | Instantiate Id [FValue] -- add<1,2>
-            | Type FValue
-
+            | Instantiate Id [Value] -- add<1,2>
+            | Type Value
+              deriving (Functor)
 
 --   Fixed Expression
 data FExpr = InExpr { outExpr::F.Fix Expr }
 
+scope_ e i = F.Fix $ Scope e (Id i)
+(.:) = scope_
+
+type_ t = F.Fix $ Type t
+
+groupMemberFind :: Id -> [MetaValue] -> Either String MetaValue
+groupMemberFind i ms = case find ((==) i. metaId) ms of
+  Just m -> Right m
+  Nothing -> Left $ show i ++ " undefined!"
+
+evalExpr :: FExpr -> Symbols MetaValue
+evalExpr = outExpr >>> F.cata f
+  where f :: Expr (Symbols MetaValue) -> Symbols MetaValue
+        f (Scope e i) = e >>= \expr -> case expr of
+            Template mi _ _ -> Lookup . const . Left $ "Template " ++ show mi ++ " must be instantiated before inner types can be used!"
+            Single mi _ -> Lookup . const . Left  $ show i ++ " has no types to resolve!"
+            Group _ vs -> Lookup . const . groupMemberFind i . collapseGroupMembers $ vs
+        f (Type (USR t)) = lookupId t
+        --f (Type t) = Lookup . const .
+
 data Stmt a = Using Id FExpr
 
-type SymbolTable = Map.Map Id FMetaValue
+type SymbolTable = Map.Map Id MetaValue
 
 {-
    In order to make working with the symbol table easier
@@ -145,6 +191,15 @@ instance Monad Symbols where
       Right (Definition df) -> df tbl
       Right (Lookup lf) -> fmap (flip (,) tbl) (lf tbl)
       Left e -> Left e
+
+execSymbols :: Symbols a -> SymbolTable -> Either String (a, SymbolTable)
+execSymbols (Definition mf) tbl = mf tbl
+execSymbols (Lookup mf) tbl = flip (,) tbl <$> mf tbl
+
+evalSymbols :: Symbols a -> SymbolTable -> Either String a
+evalSymbols (Definition mf) tbl = fmap fst (mf tbl)
+evalSymbols (Lookup mf) tbl = mf tbl
+
 
 {-
    Monads allow for composition of functions which return Functors.
@@ -203,16 +258,23 @@ instance Monad Symbols where
 
 -}
 
-lookup :: Id -> Symbols (Maybe FMetaValue)
+lookupId :: Id -> Symbols MetaValue
 -- ^ Gets the type for an id
-lookup i = Lookup $ pure . Map.lookup i
+lookupId i = Lookup $ \tbl -> case Map.lookup i tbl of
+  Just mv -> Right mv
+  Nothing -> Left $ "Symbol " ++ show i ++ " is undefined!"
 
-define :: F.Fix MetaValue -> Symbols ()
+define :: MetaValue -> Symbols ()
 -- ^ Addes a symbol value pair to the symbol table
 define mv = Definition $ \tbl ->
   if isNothing (Map.lookup (metaId mv) tbl)
-    then Right ((), Map.insert (metaId mv) (InMetaValue mv) tbl)
+    then Right ((), Map.insert (metaId mv) mv tbl)
     else Left $ "Unknown symbol " ++ (show . metaId $ mv)
+
+
+symbolsTest = do
+  define testClass
+  evalExpr (InExpr $ type_ (USR (Id "testClass")) .: "x")
 
 --apply :: FExpr -> Symbols (Maybe FValue)
 -- ^ Looks up the metavalue and attempts to apply it to the args
