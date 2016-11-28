@@ -30,7 +30,7 @@ data Value a = INT
             | REF a
             | STATIC a
             | USR Id
-            deriving Functor
+              deriving Functor
 
 --   Fixed Type
 data FValue = InValue { outValue :: F.Fix Value }
