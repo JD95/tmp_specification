@@ -63,6 +63,9 @@ data MetaArg = Targ Id
 class_ t = Targ (Id t)
 list_ t = Tlist (Id t)
 
+isTlist (Tlist _) = True
+isTlist _ = False
+
 instance Show MetaArg where
   show (Targ t) = "class " ++ show t
   show (Tlist t) = "class ..." ++ show t
@@ -114,7 +117,7 @@ testClass = Group (Id "testClass") $ do
     single DOUBLE "otherVar"
 
 data Expr a = Scope a Id -- someClass::value
-            | Instantiate Id [Value] -- add<1,2>
+            | Instantiate a [Value] -- add<1,2>
             | Type Value
               deriving (Functor)
 
@@ -123,6 +126,13 @@ data FExpr = InExpr { outExpr::F.Fix Expr }
 
 scope_ e i = F.Fix $ Scope e (Id i)
 (.:) = scope_
+
+infixl 7 .:
+
+instantiate_ e args = F.Fix $ Instantiate e args
+(<:>) = instantiate_
+
+infix 6 <:>
 
 type_ t = F.Fix $ Type t
 
@@ -135,9 +145,15 @@ evalExpr :: FExpr -> Symbols MetaValue
 evalExpr = outExpr >>> F.cata f
   where f :: Expr (Symbols MetaValue) -> Symbols MetaValue
         f (Scope e i) = e >>= \expr -> case expr of
-            Template mi _ _ -> Lookup . const . Left $ "Template " ++ show mi ++ " must be instantiated before inner types can be used!"
-            Single mi _ -> Lookup . const . Left  $ show i ++ " has no types to resolve!"
-            Group _ vs -> Lookup . const . groupMemberFind i . collapseGroupMembers $ vs
+          Template mi _ _ -> symbolError $ "Template " ++ show mi ++ " must be instantiated before inner types can be used!"
+          Single mi _ -> symbolError $ show i ++ " has no types to resolve!"
+          Group _ vs -> Lookup . const . groupMemberFind i . collapseGroupMembers $ vs
+        f (Instantiate e args) = e >>= \expr -> case expr of
+          Template mi tArgs f -> if isTlist (last tArgs) || length args == length tArgs
+            then Lookup . const $ f args
+            else symbolError $ "Type arguments do not match template " ++ show mi
+          Single mi _ -> symbolError $ show mi ++ " is not a template!"
+          Group mi vs -> symbolError $ show mi ++ " is not a template!"
         f (Type (USR t)) = lookupId t
         --f (Type t) = Lookup . const .
 
@@ -154,6 +170,8 @@ type SymbolTable = Map.Map Id MetaValue
 
 data Symbols t = Definition (SymbolTable -> Either String (t, SymbolTable))
                | Lookup (SymbolTable -> Either String t)
+
+symbolError = Lookup . const . Left
 
 instance Functor Symbols where
   fmap = liftM
@@ -196,9 +214,9 @@ execSymbols :: Symbols a -> SymbolTable -> Either String (a, SymbolTable)
 execSymbols (Definition mf) tbl = mf tbl
 execSymbols (Lookup mf) tbl = flip (,) tbl <$> mf tbl
 
-evalSymbols :: Symbols a -> SymbolTable -> Either String a
-evalSymbols (Definition mf) tbl = fmap fst (mf tbl)
-evalSymbols (Lookup mf) tbl = mf tbl
+evalSymbols :: SymbolTable -> Symbols a -> Either String a
+evalSymbols tbl (Definition mf)  = fmap fst (mf tbl)
+evalSymbols tbl (Lookup mf) = mf tbl
 
 
 {-
@@ -272,9 +290,9 @@ define mv = Definition $ \tbl ->
     else Left $ "Unknown symbol " ++ (show . metaId $ mv)
 
 
-symbolsTest = do
+program = evalSymbols (Map.fromList []) $ do
   define testClass
-  evalExpr (InExpr $ type_ (USR (Id "testClass")) .: "x")
+  evalExpr (InExpr $ (type_ (USR (Id "testClass")) .: "add" <:> [IntLit 5, IntLit 5]) .: "value")
 
 --apply :: FExpr -> Symbols (Maybe FValue)
 -- ^ Looks up the metavalue and attempts to apply it to the args
