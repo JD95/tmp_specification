@@ -45,7 +45,6 @@ evalArgs tbl = join
              . sequence
              . fmap (evalSymbols tbl)
 
-
 evalExpr :: F.Fix Expr -> Symbols FMetaValue
 evalExpr = F.cata f
   where f :: Expr (Symbols FMetaValue) -> Symbols FMetaValue

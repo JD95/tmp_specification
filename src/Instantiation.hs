@@ -106,10 +106,13 @@ matchTArgs :: [MetaArg] -> [Value] -> Either String [(MetaArg, Value)]
 matchTArgs margs vs
   | length margs > length vs = Left "To few template args"
   | length margs < length vs = Left "To many template args"
-  | otherwise = Right $ zip ts vs' ++ pack
-    where (ts, lst) = break isTlist margs
-          (vs', lstVs) = splitAt (length ts - 1) vs
-          pack = if null lst then [] else [(head lst, PACK lstVs)]
+  | otherwise = Right gs
+    where gs = case break isTlist margs of
+              (ts, [])  -> zip ts vs
+              (ts, lst) -> let (vs', lstVs) = splitAt (length ts - 1) vs in
+                           let pack = if null lst then [] else [(head lst, PACK lstVs)] in
+                           zip ts vs' ++ pack
+
 
 rankSpecialization :: [Value] -> ([MetaArg], z) -> Either String (Int, [MetaArg], z)
 rankSpecialization vs (margs, mv) = pure . (\i -> (i, margs, mv))

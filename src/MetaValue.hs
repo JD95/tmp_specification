@@ -111,7 +111,7 @@ instance Show FMetaValue where
     where f (Single i v) = show v ++ " " ++ show i
           f (Group i vs) = "struct " ++ show i ++ "{\n" ++ members ++ "};\n"
             where members = concatMap ((\m -> "\t" ++ m ++ "\n") . show) vs
-          f (Template i ss) = "template<" ++ showCommaList ss ++ "> " ++ show i
+          f (Template i ss) = concatMap (\(args, v) -> "template<" ++ showCommaList args ++ "> " ++ show v ++ "\n") ss
 
 tmp_ t i = F.Fix $ Type (Left (t (Id i)))
 
