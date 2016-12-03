@@ -3,7 +3,6 @@ module Expr(
   FExpr(..),
   (.:),
   (<:>),
-  type_,
   groupMemberFind,
   evalExpr
 ) where
@@ -21,9 +20,6 @@ import MetaValue
 import Symbols
 import Instantiation
 
---   Fixed Expression
-data FExpr = InExpr { outExpr::F.Fix Expr }
-
 scope_ e i = F.Fix $ Scope e (Id i)
 (.:) = scope_
 
@@ -33,9 +29,6 @@ instantiate_ e args = F.Fix $ Instantiate e args
 (<:>) = instantiate_
 
 infix 6 <:>
-
-type_ t = F.Fix $ Type t
-
 
 groupMemberFind :: Id -> [FMetaValue] -> Either String FMetaValue
 groupMemberFind i ms = case find ((==) i. metaId) ms of
@@ -47,16 +40,11 @@ evalScope i = outMetaValue >>> F.unfix >>> f
   where f (Template mi _) = symbolError $ "Template " ++ show mi ++ " must be instantiated before inner types can be used!"
         f (Single mi _) = symbolError $ show i ++ " has no types to resolve!"
         f (Group _ vs) = Lookup . const . groupMemberFind i . fmap InMetaValue $ vs
-
-getValue :: FMetaValue -> Either String Value
-getValue mv = f . F.unfix . outMetaValue $ mv
-  where f (Single e (Right v)) = Right v
-        f _ = Left $ show (metaId mv) ++ " is not a value!"
-
 evalArgs tbl = join
              . fmap (sequence . fmap getValue)
              . sequence
              . fmap (evalSymbols tbl)
+
 
 evalExpr :: F.Fix Expr -> Symbols FMetaValue
 evalExpr = F.cata f
@@ -72,4 +60,4 @@ evalExpr = F.cata f
 
         -- A single type
         f (Type (Right (USR t))) = lookupId t
-        f (Type t) = pure (inFMetaValue (Single (Id . show $ t) t))
+        f (Type t) = pure (inFMetaValue (Single (Id . show $ t) (inFExpr $ Type t)))

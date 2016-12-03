@@ -17,7 +17,11 @@ module MetaValue(
   val_,
   arg_,
   usrVal_,
-  Expr(..)
+  Expr(..),
+  FExpr(..),
+  getType,
+  inFExpr,
+  getValue
 ) where
 
 import qualified Data.Functor.Foldable as F
@@ -36,9 +40,31 @@ data Expr a = Scope a Id -- someClass::value
             | Type (Either MetaArg Value)
               deriving (Functor)
 
+--   Fixed Expression
+data FExpr = InExpr { outExpr::F.Fix Expr }
+
+inFExpr = InExpr . F.Fix
+
+getType :: FExpr -> Either String Value
+getType = f . F.unfix . outExpr
+  where f (Type (Right v)) = Right v
+        f _ = Left "Expression does not evaluate to a value!"
+
+getValue :: FMetaValue -> Either String Value
+getValue mv = f . F.unfix . outMetaValue $ mv
+  where f (Single e v) = getType v
+        f _ = Left $ show (metaId mv) ++ " is not a value!"
+
+instance Show FExpr where
+  show = outExpr >>> F.cata f
+    where f (Scope a (Id i)) = a ++ "::" ++ i
+          f (Instantiate e args) = e ++ "<" ++ showCommaList args ++ ">"
+          f (Type (Left m)) = show m
+          f (Type (Right m)) = show m
+
 data MetaValue a = Template Id [([MetaArg], a)]
                  | Group Id [a] -- ^ A struct or record
-                 | Single Id (Either MetaArg Value) -- ^ static const int value = 5;\
+                 | Single Id FExpr -- ^ static const int value = 5;\
 
 instance Functor MetaValue where
   fmap f (Template i ss) = Template i (fmap (second f) ss)
@@ -87,11 +113,11 @@ instance Show FMetaValue where
             where members = concatMap ((\m -> "\t" ++ m ++ "\n") . show) vs
           f (Template i ss) = "template<" ++ showCommaList ss ++ "> " ++ show i
 
-tmp_ t i = Left (t (Id i))
+tmp_ t i = F.Fix $ Type (Left (t (Id i)))
 
-val_ = Right
+val_ = F.Fix . Type . Right
 
-usrVal_ i = Right (USR (Id i))
+usrVal_ i = F.Fix . Type $ Right (USR (Id i))
 
 arg_ t i = t (Id i)
 
