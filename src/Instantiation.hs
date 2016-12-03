@@ -106,7 +106,7 @@ matchTArgs :: [MetaArg] -> [Value] -> Either String [(MetaArg, Value)]
 matchTArgs margs vs
   | length margs > length vs = Left "To few template args"
   | length margs < length vs = Left "To many template args"
-  | otherwise = Right gs
+  | otherwise = Right $ gs
     where gs = case break isTlist margs of
               (ts, [])  -> zip ts vs
               (ts, lst) -> let (vs', lstVs) = splitAt (length ts - 1) vs in

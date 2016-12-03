@@ -108,7 +108,7 @@ showCommaList = intercalate "," . map show
 
 instance Show FMetaValue where
   show = outMetaValue >>> F.cata f
-    where f (Single i v) = show v ++ " " ++ show i
+    where f (Single i v) = if show i == "" then show v else show v ++ " " ++ show i
           f (Group i vs) = "struct " ++ show i ++ "{\n" ++ members ++ "};\n"
             where members = concatMap ((\m -> "\t" ++ m ++ "\n") . show) vs
           f (Template i ss) = concatMap (\(args, v) -> "template<" ++ showCommaList args ++ "> " ++ show v ++ "\n") ss

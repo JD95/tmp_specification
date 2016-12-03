@@ -30,16 +30,25 @@ instantiate_ e args = F.Fix $ Instantiate e args
 
 infix 6 <:>
 
-groupMemberFind :: Id -> [FMetaValue] -> Either String FMetaValue
+groupMemberFind :: Id -> [FMetaValue] -> Symbols FMetaValue
 groupMemberFind i ms = case find ((==) i. metaId) ms of
-  Just m -> Right m
-  Nothing -> Left $ show i ++ " undefined!"
+  Just m -> return m
+  Nothing -> symbolError $ show i ++ " undefined!"
 
 evalScope :: Id -> FMetaValue -> Symbols FMetaValue
 evalScope i = outMetaValue >>> F.unfix >>> f
   where f (Template mi _) = symbolError $ "Template " ++ show mi ++ " must be instantiated before inner types can be used!"
-        f (Single mi _) = symbolError $ show i ++ " has no types to resolve!"
-        f (Group _ vs) = Lookup . const . groupMemberFind i . fmap InMetaValue $ vs
+        f (Single mi v) = symbolError $ show i ++ " has no types to resolve!"
+        f (Group _ vs) = evalMember <=< groupMemberFind i . fmap InMetaValue $ vs
+
+evalMember :: FMetaValue -> Symbols FMetaValue
+evalMember = outMetaValue >>> F.unfix >>> f
+  where f :: MetaValue (F.Fix MetaValue) -> Symbols FMetaValue
+        f (Single _ v) = evalExpr (outExpr v)
+        f (Group mi vs) = (inFMetaValue . Group mi . fmap outMetaValue)
+                      <$> (sequence . fmap (evalMember . InMetaValue) $ vs)
+        f (Template mi ss) = return . inFMetaValue $ Template mi ss
+
 evalArgs tbl = join
              . fmap (sequence . fmap getValue)
              . sequence
@@ -59,4 +68,4 @@ evalExpr = F.cata f
 
         -- A single type
         f (Type (Right (USR t))) = lookupId t
-        f (Type t) = pure (inFMetaValue (Single (Id . show $ t) (inFExpr $ Type t)))
+        f (Type t) = pure (inFMetaValue (Single (Id "") (inFExpr $ Type t)))
