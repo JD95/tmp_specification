@@ -12,7 +12,12 @@ module MetaValue(
   template,
   inFMetaValue,
   toFreeLine,
-  spec
+  spec,
+  tmp_,
+  val_,
+  arg_,
+  usrVal_,
+  Expr(..)
 ) where
 
 import qualified Data.Functor.Foldable as F
@@ -25,6 +30,11 @@ import Data.List (nub, intercalate, find)
 import qualified Data.Bifunctor as Bi
 
 import Value
+
+data Expr a = Scope a Id -- someClass::value
+            | Instantiate a [a] -- add<1,2>
+            | Type (Either MetaArg Value)
+              deriving (Functor)
 
 data MetaValue a = Template Id [([MetaArg], a)]
                  | Group Id [a] -- ^ A struct or record
@@ -77,10 +87,18 @@ instance Show FMetaValue where
             where members = concatMap ((\m -> "\t" ++ m ++ "\n") . show) vs
           f (Template i ss) = "template<" ++ showCommaList ss ++ "> " ++ show i
 
+tmp_ t i = Left (t (Id i))
+
+val_ = Right
+
+usrVal_ i = Right (USR (Id i))
+
+arg_ t i = t (Id i)
+
 single v i = Free (Line (F.Fix $ Single (Id i) v) (Pure ()))
 
 group i vs = Free (Line (F.Fix $ Group (Id i) (collapseLines vs)) (Pure ()))
 
 template i s = Free (Line (F.Fix $ Template (Id i) (collapseLines s)) (Pure ()))
 
-spec margs mv = Free (Line (margs, F.Fix mv) (Pure ()))
+spec margs mv = Free (Line (margs, mv) (Pure ()))

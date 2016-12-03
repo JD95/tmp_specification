@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveFunctor #-}
-
 module Expr(
   Expr(..),
   FExpr(..),
@@ -22,11 +20,6 @@ import Value
 import MetaValue
 import Symbols
 import Instantiation
-
-data Expr a = Scope a Id -- someClass::value
-            | Instantiate a [Value] -- add<1,2>
-            | Type Value
-              deriving (Functor)
 
 --   Fixed Expression
 data FExpr = InExpr { outExpr::F.Fix Expr }
@@ -55,13 +48,28 @@ evalScope i = outMetaValue >>> F.unfix >>> f
         f (Single mi _) = symbolError $ show i ++ " has no types to resolve!"
         f (Group _ vs) = Lookup . const . groupMemberFind i . fmap InMetaValue $ vs
 
+getValue :: FMetaValue -> Either String Value
+getValue mv = f . F.unfix . outMetaValue $ mv
+  where f (Single e (Right v)) = Right v
+        f _ = Left $ show (metaId mv) ++ " is not a value!"
+
+evalArgs tbl = join
+             . fmap (sequence . fmap getValue)
+             . sequence
+             . fmap (evalSymbols tbl)
+
 evalExpr :: F.Fix Expr -> Symbols FMetaValue
 evalExpr = F.cata f
   where f :: Expr (Symbols FMetaValue) -> Symbols FMetaValue
         -- Scope resolution
         f (Scope e i) =  e >>= evalScope i
+
         -- Template instantiation
-        f (Instantiate e args) = Lookup $ flip instantiate args <=< flip evalSymbols e
+        f (Instantiate e args) = Lookup $ \tbl -> do
+          let e' = evalSymbols tbl e
+          let args' = evalArgs tbl args
+          join $ pure instantiate <*> e' <*> args'
+
         -- A single type
-        f (Type (USR t)) = lookupId t
-        f (Type t) = pure (inFMetaValue (Single (Id . show $ t) (Right t)))
+        f (Type (Right (USR t))) = lookupId t
+        f (Type t) = pure (inFMetaValue (Single (Id . show $ t) t))
