@@ -53,7 +53,7 @@ evalScope :: Id -> FMetaValue -> Symbols FMetaValue
 evalScope i = outMetaValue >>> F.unfix >>> f
   where f (Template mi _) = symbolError $ "Template " ++ show mi ++ " must be instantiated before inner types can be used!"
         f (Single mi _) = symbolError $ show i ++ " has no types to resolve!"
-        f (Group _ vs) =Lookup . const . groupMemberFind i . fmap InMetaValue . collapseGroupMembers $ vs
+        f (Group _ vs) = Lookup . const . groupMemberFind i . fmap InMetaValue $ vs
 
 evalExpr :: F.Fix Expr -> Symbols FMetaValue
 evalExpr = F.cata f
@@ -64,4 +64,4 @@ evalExpr = F.cata f
         f (Instantiate e args) = Lookup $ flip instantiate args <=< flip evalSymbols e
         -- A single type
         f (Type (USR t)) = lookupId t
-        f (Type t) = pure (InMetaValue (F.Fix (Single (Id . show $ t) t)))
+        f (Type t) = pure (inFMetaValue (Single (Id . show $ t) (Right t)))

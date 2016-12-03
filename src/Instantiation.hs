@@ -36,9 +36,9 @@ betaLookup (Left marg) a = get >>= \maps -> case lookup marg maps of
 reduceLine :: [(MetaArg, Value)] -> Line (BetaReduction a) () -> Either String a
 reduceLine maps (Line br _) = evalState br maps
 
-repackGroup :: (Foldable t, Functor t) => Id -> t (F.Fix MetaValue) -> FMetaValue
+repackGroup :: Id -> [F.Fix MetaValue] -> FMetaValue
 -- ^ Packs a list of meta values into a group with a Free monad again
-repackGroup i = inFMetaValue . Group i . foldr1 (>>)  . fmap toFreeLine
+repackGroup i = inFMetaValue . Group i
 
 reduceTemplate :: [(MetaArg, Value)] -> ([MetaArg], BetaReduction a) -> Either String a
 reduceTemplate maps = uncurry (flip evalState) . first ((++) maps . fmap (flip (,) VOID))
@@ -57,8 +57,7 @@ betaReduce maps = F.cata f >>> flip evalState maps
         f (Group i ls) = get >>= \maps ->
           return . fmap (repackGroup i . fmap outMetaValue)
                  . sequence
-                 . fmap (`evalState` maps)
-                 . collapseGroupMembers $ ls
+                 . fmap (`evalState` maps) $ ls
 
         -- Add the args to template as trivial mappings to evaluate template
         -- value and then repack the specializations if all reductions succeed.
@@ -82,9 +81,10 @@ matchTArgs :: [MetaArg] -> [Value] -> Either String [(MetaArg, Value)]
 matchTArgs margs vs
   | length margs > length vs = Left "To few template args"
   | length margs < length vs = Left "To many template args"
-  | otherwise = Right $ zip ts vs' ++ [(head lst, PACK lstVs)]
+  | otherwise = Right $ zip ts vs' ++ pack
     where (ts, lst) = break isTlist margs
           (vs', lstVs) = splitAt (length ts - 1) vs
+          pack = if lst == [] then [] else [(head lst, PACK lstVs)]
 
 rankSpecialization :: [Value] -> ([MetaArg], z) -> Either String (Int, [MetaArg], z)
 rankSpecialization vs (margs, mv) = pure . (\i -> (i, margs, mv))
@@ -97,6 +97,6 @@ rankSpecialization vs (margs, mv) = pure . (\i -> (i, margs, mv))
         comprArg (Targ _) (IntLit _) = Left "Template arg mismatch"
         comprArg (Targ _) (BoolLit _) = Left "Template arg mismatch"
         comprArg (Targ _) _ = Right 2
-        comprArg (Tint _ _) (IntLit _) = Right 4
-        comprArg (Tbool _ _) (BoolLit _) = Right 4
+        comprArg (Tint _) (IntLit _) = Right 4
+        comprArg (Tbool _) (BoolLit _) = Right 4
         comprArg _ _ = Left "Template arg mismatch"

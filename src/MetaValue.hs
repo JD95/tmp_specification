@@ -5,13 +5,14 @@ module MetaValue(
   MetaValue(..),
   Line(..),
   listFromLines,
-  collapseGroupMembers,
+  collapseLines,
   metaId,
   single,
   group,
   template,
   inFMetaValue,
-  toFreeLine
+  toFreeLine,
+  spec
 ) where
 
 import qualified Data.Functor.Foldable as F
@@ -26,12 +27,14 @@ import qualified Data.Bifunctor as Bi
 import Value
 
 data MetaValue a = Template Id [([MetaArg], a)]
-                 | Group Id (Free (Line a) ()) -- ^ A struct or record
+                 | Group Id [a] -- ^ A struct or record
                  | Single Id (Either MetaArg Value) -- ^ static const int value = 5;\
 
 instance Functor MetaValue where
   fmap f (Template i ss) = Template i (fmap (second f) ss)
-  fmap f (Group i ls) = Group i (hoistFree (Bi.first f) ls)
+  fmap f (Group i ls) = Group i (fmap f ls)
+  fmap f (Single i v) = Single i v
+
 
 newtype FMetaValue = InMetaValue { outMetaValue :: F.Fix MetaValue }
 
@@ -48,7 +51,7 @@ listFromLines :: Line a [a] -> [a]
 listFromLines (Line r rs) = r:rs
 listFromLines EndLine = []
 
-collapseGroupMembers = iter listFromLines . fmap (const [])
+collapseLines = iter listFromLines . fmap (const [])
 
 toFreeLine :: a -> Free (Line a) ()
 toFreeLine a = Free (Line a (Pure ()))
@@ -71,11 +74,13 @@ instance Show FMetaValue where
   show = outMetaValue >>> F.cata f
     where f (Single i v) = show v ++ " " ++ show i
           f (Group i vs) = "struct " ++ show i ++ "{\n" ++ members ++ "};\n"
-            where members = concatMap ((\m -> "\t" ++ m ++ "\n") . show) $ collapseGroupMembers vs
+            where members = concatMap ((\m -> "\t" ++ m ++ "\n") . show) vs
           f (Template i ss) = "template<" ++ showCommaList ss ++ "> " ++ show i
 
-single v i = Free (Line (Single (Id i) v) (Pure ()))
+single v i = Free (Line (F.Fix $ Single (Id i) v) (Pure ()))
 
-group i vs = Free (Line (Group (Id i) vs) (Pure ()))
+group i vs = Free (Line (F.Fix $ Group (Id i) (collapseLines vs)) (Pure ()))
 
-template i s = Free (Line (Template (Id i) s) (Pure ()))
+template i s = Free (Line (F.Fix $ Template (Id i) (collapseLines s)) (Pure ()))
+
+spec margs mv = Free (Line (margs, F.Fix mv) (Pure ()))

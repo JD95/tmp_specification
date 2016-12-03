@@ -60,16 +60,16 @@ instance Show Value where
   show (PACK ts) = show ts
 
 data MetaArg = Targ Id
-             | Tint Id Int
-             | Tbool Id Bool
+             | Tint Id
+             | Tbool Id
              | Tlist Id
 
 instance Eq MetaArg where
   (==) a b = metaArgId a == metaArgId b
 
 metaArgId (Targ i) = i
-metaArgId (Tint i _) = i
-metaArgId (Tbool i _) = i
+metaArgId (Tint i) = i
+metaArgId (Tbool i) = i
 metaArgId (Tlist i) = i
 
 -- Makes the definitions look nicer
@@ -82,5 +82,5 @@ isTlist _ = False
 instance Show MetaArg where
   show (Targ t) = "class " ++ show t
   show (Tlist t) = "class ..." ++ show t
-  show (Tint mi i) = "int " ++ show i
-  show (Tbool mi b) = "bool " ++ show b
+  show (Tint mi) = "int "
+  show (Tbool mi) = "bool "
