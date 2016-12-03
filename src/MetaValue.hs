@@ -10,7 +10,8 @@ module MetaValue(
   single,
   group,
   template,
-  inFMetaValue
+  inFMetaValue,
+  toFreeLine
 ) where
 
 import qualified Data.Functor.Foldable as F
@@ -48,6 +49,9 @@ listFromLines (Line r rs) = r:rs
 listFromLines EndLine = []
 
 collapseGroupMembers = iter listFromLines . fmap (const [])
+
+toFreeLine :: a -> Free (Line a) ()
+toFreeLine a = Free (Line a (Pure ()))
 
 metaId = outMetaValue >>> F.unfix >>> f
   where f (Template i _ ) = i

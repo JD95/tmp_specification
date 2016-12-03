@@ -25,51 +25,45 @@ import Control.Monad.Free
 
 type BetaReduction a = State [(MetaArg, Value)] (Either String a)
 
-reduceLine :: [(MetaArg, Value)] -> Line (BetaReduction a) () -> Either String a
-reduceLine maps (Line br _) = evalState br maps
-
-tempValue :: MetaArg -> (MetaArg, Value)
-tempValue = flip (,) VOID
-
-reduceTemplate :: [(MetaArg, Value)] -> ([MetaArg], BetaReduction a) -> Either String a
-reduceTemplate maps = uncurry (flip evalState) . first ((++) maps . fmap tempValue)
-
 betaLookup :: forall a. Either MetaArg Value -> (Value -> a) -> BetaReduction a
 betaLookup (Right v) a = return . Right $ a v
 betaLookup (Left marg) a = get >>= \maps -> case lookup marg maps of
               Just v -> return . Right $ a v
               Nothing -> return . Left $ "Templated type was not instantiated!"
 
-betaCheck :: [(MetaArg, Value)] -> FMetaValue -> Either String ()
-betaCheck rs = outMetaValue >>> F.cata f >>> flip evalState rs
-  where f :: MetaValue (BetaReduction ()) -> BetaReduction ()
-        f (Single i v) = betaLookup v (const ())
-        f (Group i ls) = get >>= \maps ->
-        -- Check to make sure all group members were substituted correctly
-          return . foldr (>>) (Right ()) . fmap (`evalState` maps) . collapseGroupMembers $ ls
-        f (Template i ss) = get >>= \maps ->
-        -- Use template args to check if templated value was substituted correctly
-          return . foldr (>>) (Right ()) . fmap (reduceTemplate maps) $ ss
-
-toFreeLine :: a -> Free (Line a) ()
-toFreeLine a = Free (Line a (Pure ()))
+reduceLine :: [(MetaArg, Value)] -> Line (BetaReduction a) () -> Either String a
+reduceLine maps (Line br _) = evalState br maps
 
 repackGroup :: (Foldable t, Functor t) => Id -> t (F.Fix MetaValue) -> FMetaValue
 -- ^ Packs a list of meta values into a group with a Free monad again
 repackGroup i = inFMetaValue . Group i . foldr1 (>>)  . fmap toFreeLine
 
+reduceTemplate :: [(MetaArg, Value)] -> ([MetaArg], BetaReduction a) -> Either String a
+reduceTemplate maps = uncurry (flip evalState) . first ((++) maps . fmap (flip (,) VOID))
+
+repackTemplate i args = inFMetaValue . Template i . zip args
+
 betaReduce :: [(MetaArg, Value)] -> FMetaValue -> Either String FMetaValue
 betaReduce maps = outMetaValue >>> F.cata f >>> flip evalState maps
   where f :: MetaValue (BetaReduction FMetaValue) -> BetaReduction FMetaValue
-        -- ^ If is a single template value, replace it with the mapped Value
+
+        -- If is a single template value, replace it with the mapped Value.
         f (Single i v) = betaLookup v (inFMetaValue . Single i . Right)
-        -- ^ Unpack group and reduce each line, repacking the group if each
-        -- line has a successful reduction
+
+        -- Unpack group and reduce each line, repacking the group if each
+        -- line has a successful reduction.
         f (Group i ls) = get >>= \maps ->
           return . fmap (repackGroup i . fmap outMetaValue)
                  . sequence
                  . fmap (`evalState` maps)
                  . collapseGroupMembers $ ls
+
+        -- Add the args to template as trivial mappings to evaluate template
+        -- value and then repack the specializations if all reductions succeed.
+        f (Template i ss) = get >>= \maps ->
+          return . fmap (repackTemplate i (fmap fst ss) . fmap outMetaValue)
+                 . sequence
+                 . fmap (reduceTemplate maps) $ ss
 
 
 instantiate :: FMetaValue -> [Value] -> Either String FMetaValue
