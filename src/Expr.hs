@@ -21,6 +21,7 @@ import Data.List (nub, intercalate, find)
 import Value
 import MetaValue
 import Symbols
+import Instantiation
 
 data Expr a = Scope a Id -- someClass::value
             | Instantiate a [Value] -- add<1,2>
@@ -42,26 +43,25 @@ infix 6 <:>
 
 type_ t = F.Fix $ Type t
 
-groupMemberFind :: Id -> [MetaValue] -> Either String MetaValue
+
+groupMemberFind :: Id -> [FMetaValue] -> Either String FMetaValue
 groupMemberFind i ms = case find ((==) i. metaId) ms of
   Just m -> Right m
   Nothing -> Left $ show i ++ " undefined!"
 
-evalExpr :: F.Fix Expr -> Symbols MetaValue
+evalScope :: Id -> FMetaValue -> Symbols FMetaValue
+evalScope i = outMetaValue >>> F.unfix >>> f
+  where f (Template mi _) = symbolError $ "Template " ++ show mi ++ " must be instantiated before inner types can be used!"
+        f (Single mi _) = symbolError $ show i ++ " has no types to resolve!"
+        f (Group _ vs) =Lookup . const . groupMemberFind i . fmap InMetaValue . collapseGroupMembers $ vs
+
+evalExpr :: F.Fix Expr -> Symbols FMetaValue
 evalExpr = F.cata f
-  where f :: Expr (Symbols MetaValue) -> Symbols MetaValue
+  where f :: Expr (Symbols FMetaValue) -> Symbols FMetaValue
         -- Scope resolution
-        f (Scope e i) = e >>= \expr -> case expr of
-          Template mi _ _ -> symbolError $ "Template " ++ show mi ++ " must be instantiated before inner types can be used!"
-          Single mi _ -> symbolError $ show i ++ " has no types to resolve!"
-          Group _ vs -> Lookup . const . groupMemberFind i . collapseGroupMembers $ vs
+        f (Scope e i) =  e >>= evalScope i
         -- Template instantiation
-        f (Instantiate e args) = e >>= \expr -> case expr of
-          Template mi tArgs f -> if isTlist (last tArgs) || length args == length tArgs
-            then Lookup . const $ f args
-            else symbolError $ "Type arguments do not match template " ++ show mi
-          Single mi _ -> symbolError $ show mi ++ " is not a template!"
-          Group mi vs -> symbolError $ show mi ++ " is not a template!"
+        f (Instantiate e args) = Lookup $ flip instantiate args <=< flip evalSymbols e
         -- A single type
         f (Type (USR t)) = lookupId t
-        f (Type t) = Lookup . const $ pure (Single (Id . show $ t) t)
+        f (Type t) = pure (InMetaValue (F.Fix (Single (Id . show $ t) t)))

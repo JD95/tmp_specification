@@ -4,7 +4,8 @@ module Value(
   MetaArg(..),
   class_,
   list_,
-  isTlist
+  isTlist,
+  metaArgId
 ) where
 
 import qualified Data.Functor.Foldable as F
@@ -36,6 +37,7 @@ data Value = INT
            | REF Value
            | STATIC Value
            | USR Id
+           | PACK [Value]
              deriving (Eq, Ord)
 
 
@@ -55,12 +57,20 @@ instance Show Value where
   show (PTR a) = show a ++ "*"
   show (STATIC a) = "static " ++ show a
   show (USR t) = show t
+  show (PACK ts) = show ts
 
 data MetaArg = Targ Id
              | Tint Id Int
              | Tbool Id Bool
              | Tlist Id
-             | TlistArg
+
+instance Eq MetaArg where
+  (==) a b = metaArgId a == metaArgId b
+
+metaArgId (Targ i) = i
+metaArgId (Tint i _) = i
+metaArgId (Tbool i _) = i
+metaArgId (Tlist i) = i
 
 -- Makes the definitions look nicer
 class_ t = Targ (Id t)
@@ -72,6 +82,5 @@ isTlist _ = False
 instance Show MetaArg where
   show (Targ t) = "class " ++ show t
   show (Tlist t) = "class ..." ++ show t
-  show TlistArg = "listArg"
   show (Tint mi i) = "int " ++ show i
   show (Tbool mi b) = "bool " ++ show b

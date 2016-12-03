@@ -19,7 +19,7 @@ import Data.List (nub, intercalate, find)
 import Value
 import MetaValue
 
-type SymbolTable = Map.Map Id MetaValue
+type SymbolTable = Map.Map Id FMetaValue
 
 data Symbols t = Definition (SymbolTable -> Either String (t, SymbolTable))
                | Lookup (SymbolTable -> Either String t)
@@ -129,15 +129,15 @@ evalSymbols tbl (Lookup mf) = mf tbl
 
 -}
 
-lookupId :: Id -> Symbols MetaValue
+lookupId :: Id -> Symbols FMetaValue
 -- ^ Gets the type for an id
 lookupId i = Lookup $ \tbl -> case Map.lookup i tbl of
   Just mv -> Right mv
   Nothing -> Left $ "Symbol " ++ show i ++ " is undefined!"
 
-define :: MetaValue -> Symbols ()
+define :: FMetaValue -> Symbols ()
 -- ^ Addes a symbol value pair to the symbol table
 define mv = Definition $ \tbl ->
   if isNothing (Map.lookup (metaId mv) tbl)
     then Right ((), Map.insert (metaId mv) mv tbl)
-    else Left $ "Unknown symbol " ++ (show . metaId $ mv)
+    else Left $ "Unknown symbol " ++ show (metaId mv)

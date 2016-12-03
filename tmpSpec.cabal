@@ -20,6 +20,8 @@ library
                      , recursion-schemes
                      , containers
                      , free
+                     , bifunctors
+                     , mtl
   default-language:    Haskell2010
 
 executable tmpSpec-exe
