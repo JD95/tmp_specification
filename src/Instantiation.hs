@@ -21,6 +21,8 @@ import qualified Data.Bifunctor as Bi
 import Control.Monad.State.Lazy
 import Control.Monad.Free
 
+import Data.Either
+
 -- TODO ACTUALLY DO THE REPLACEMENT OF TEMPLATE VALUES IN OBJ
 
 type BetaReduction a = State [(MetaArg, Value)] (Either String a)
@@ -43,8 +45,8 @@ reduceTemplate maps = uncurry (flip evalState) . first ((++) maps . fmap (flip (
 
 repackTemplate i args = inFMetaValue . Template i . zip args
 
-betaReduce :: [(MetaArg, Value)] -> FMetaValue -> Either String FMetaValue
-betaReduce maps = outMetaValue >>> F.cata f >>> flip evalState maps
+betaReduce :: [(MetaArg, Value)] -> F.Fix MetaValue -> Either String FMetaValue
+betaReduce maps = F.cata f >>> flip evalState maps
   where f :: MetaValue (BetaReduction FMetaValue) -> BetaReduction FMetaValue
 
         -- If is a single template value, replace it with the mapped Value.
@@ -68,30 +70,33 @@ betaReduce maps = outMetaValue >>> F.cata f >>> flip evalState maps
 
 instantiate :: FMetaValue -> [Value] -> Either String FMetaValue
 instantiate (InMetaValue (F.Fix (Template mi ss))) vs =
-  fmap InMetaValue . f . catMaybes $ fmap (rankSpecialization vs) ss
-  where f :: [(Int, z)] -> Either String z
+        f . rights $ fmap (rankSpecialization vs) ss
+  where f :: [(Int, [MetaArg],  F.Fix MetaValue)] -> Either String FMetaValue
         f [] = Left $ "No matching instance for " ++ show mi
-        f ms = Right . snd . maximumBy (comparing fst) $ ms
+        f ms = uncurry betaReduce
+           <=< (\(_,m,z) -> (flip (,) z <$> matchTArgs m vs))
+             . maximumBy (comparing (\(i,_,_) -> i)) $ ms
 instantiate mv _ = Left ("cannot instantiate " ++ show (metaId mv))
 
-matchTArgs :: [MetaArg] -> [Value] -> Maybe [(MetaArg, Value)]
+matchTArgs :: [MetaArg] -> [Value] -> Either String [(MetaArg, Value)]
 matchTArgs margs vs
-  | length margs /= length vs = Nothing
-  | otherwise = Just $ zip ts vs' ++ [(head lst, PACK lstVs)]
+  | length margs > length vs = Left "To few template args"
+  | length margs < length vs = Left "To many template args"
+  | otherwise = Right $ zip ts vs' ++ [(head lst, PACK lstVs)]
     where (ts, lst) = break isTlist margs
           (vs', lstVs) = splitAt (length ts - 1) vs
 
-rankSpecialization :: [Value] -> ([MetaArg], z) -> Maybe (Int, z)
-rankSpecialization vs (margs, mv) = pure . flip (,) mv
-                                =<< foldr (\x y -> pure (+) <*> x <*> y) (Just 0)
-                                =<< Just (fmap (uncurry comprArg))
+rankSpecialization :: [Value] -> ([MetaArg], z) -> Either String (Int, [MetaArg], z)
+rankSpecialization vs (margs, mv) = pure . (\i -> (i, margs, mv))
+                                =<< foldr (\x y -> pure (+) <*> x <*> y) (Right 0)
+                                =<< Right (fmap (uncurry comprArg))
                                 <*> matchTArgs margs vs
 
-  where comprArg :: MetaArg -> Value -> Maybe Int
-        comprArg (Tlist _) (PACK _) = Just 1
-        comprArg (Targ _) (IntLit _) = Nothing
-        comprArg (Targ _) (BoolLit _) = Nothing
-        comprArg (Targ _) _ = Just 2
-        comprArg (Tint _ _) (IntLit _) = Just 4
-        comprArg (Tbool _ _) (BoolLit _) = Just 4
-        comprArg _ _ = Nothing
+  where comprArg :: MetaArg -> Value -> Either String Int
+        comprArg (Tlist _) (PACK _) = Right 1
+        comprArg (Targ _) (IntLit _) = Left "Template arg mismatch"
+        comprArg (Targ _) (BoolLit _) = Left "Template arg mismatch"
+        comprArg (Targ _) _ = Right 2
+        comprArg (Tint _ _) (IntLit _) = Right 4
+        comprArg (Tbool _ _) (BoolLit _) = Right 4
+        comprArg _ _ = Left "Template arg mismatch"
