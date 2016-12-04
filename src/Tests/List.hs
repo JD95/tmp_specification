@@ -27,14 +27,24 @@ listTests = do
 program = do
   define . InMetaValue . lined $ template "list" $ do
 --  template <class H, class ...T>
-    spec [arg_ Targ "H", arg_ Tlist "T"]$ lined . group "list" $ do
+    spec [class_ "H", list_ "T"]$ lined . group "list" $ do
 --    using head = H;
       single (InExpr $ tmp_ Targ "H") "head"
 --    using tail = list<T...>;
       single (InExpr $ usrT_ "list" [tmp_ Tlist "T"]) "tail"
 
-    spec [arg_ Targ "H"]$ lined . group "list" $
+      -- template "append" $
+      --   spec [class_ "ElemT"]
+
+    spec [class_ "H"] $ lined . group "list" $
       single (InExpr $ tmp_ Targ "H") "head"
+
+-- FOR DEMOS ------------------------------------------------------------------
+
+list :: [Value] -> IO ()
+list = printResult . compileTest program . makeList
+
+-------------------------------------------------------------------------------
 
 makeList args =
   evalExpr' (usrT_ "list" (fmap val_ args))

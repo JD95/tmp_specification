@@ -22,14 +22,15 @@ module Value(
   spec,
   tmp_,
   val_,
-  arg_,
   usrVal_,
   usrT_,
   Expr(..),
   FExpr(..),
   getType,
   inFExpr,
-  getValue
+  getValue,
+  int_,
+  bool_
 ) where
 
 import qualified Data.Functor.Foldable as F
@@ -85,7 +86,7 @@ instance Show Value where
   show (STATIC a) = "static " ++ show a
   show (USR t) = show t
   show (USRT i ts) = show i ++ "<" ++ showCommaList (fmap InExpr ts) ++ ">"
-  show (PACK ts) = show ts
+  show (PACK ts) = showCommaList ts
 
 data MetaArg = Targ Id
              | Tint Id
@@ -102,8 +103,10 @@ metaArgId (Tbool i) = i
 metaArgId (Tlist i) = i
 
 -- Makes the definitions look nicer
-class_ t = Targ (Id t)
-list_ t = Tlist (Id t)
+class_ = Targ . Id
+list_ = Tlist . Id
+int_ = Tint . Id
+bool_ = Tbool . Id
 
 isTlist (Tlist _) = True
 isTlist _ = False
@@ -212,9 +215,12 @@ showCommaList = intercalate "," . map show
 
 instance Show FMetaValue where
   show = outMetaValue >>> F.cata f
-    where f (Single i v) = if show i == "" then show v else show v ++ " " ++ show i
+    where f (Single i v) = case outFExpr v of
+              (Type (Right (IntLit i))) -> show i
+              (Type (Right (BoolLit b))) -> show b
+              _ -> show v ++ " " ++ show i
           f (Group i vs) = "group " ++ show i ++ "{\n" ++ members ++ "};\n"
-            where members = concatMap ((\m -> "\t" ++ m ++ "\n") . show) vs
+            where members = concatMap (\m -> "\t" ++ m ++ "\n") vs
           f (Template i ss) = concatMap (\(args, v) -> "template<" ++ showCommaList args ++ "> " ++ show v ++ "\n") ss
 
 tmp_ t i = F.Fix $ Type (Left (t (Id i)))
@@ -224,8 +230,6 @@ val_ = F.Fix . Type . Right
 usrVal_ i = F.Fix . Type $ Right (USR (Id i))
 
 usrT_ i ts = F.Fix . Type $ Right (USRT (Id i) ts)
-
-arg_ t i = t (Id i)
 
 single v i = Free (Line (F.Fix $ Single (Id i) v) (Pure ()))
 

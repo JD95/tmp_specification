@@ -18,3 +18,5 @@ import Instantiation
 
 define' = define . InMetaValue . lined
 compileTest p t = evalSymbols (Map.fromList []) (p >> t)
+printResult (Right r) = print r
+printResult (Left l) = print l
