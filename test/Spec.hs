@@ -33,7 +33,7 @@ program = do
     spec [arg_ Tint "N"] $ lined . group "addN" $ do
       single (InExpr $ tmp_ Tint "N") "value"
       template "result" $ spec [arg_ Tint "x"] $ lined $
-        single (InExpr $ (usrVal_ "add" <:> [tmp_ Tint "x", val_ $ IntLit 1]).: "value") "result"
+        single (InExpr $ usrT_ "add" [tmp_ Tint "x", val_ $ IntLit 1].: "value") "result"
 
   define . InMetaValue . lined $ template "list" $ do
 
@@ -42,22 +42,22 @@ program = do
 --    using head = H;
       single (InExpr $ tmp_ Targ "H") "head"
 --    using tail = list<T...>;
-      single (InExpr $ usrVal_ "list" <:> [tmp_ Tlist "T"]) "tail"
+      single (InExpr $ usrT_ "list" [tmp_ Tlist "T"]) "tail"
 
     spec [arg_ Targ "H"]$ lined . group "list" $
       single (InExpr $ tmp_ Targ "H") "head"
 
 getAddValue args =
-  evalExpr' ((usrVal_ "add" <:> args).:"value")
+  evalExpr' (usrT_ "add" args.:"value")
 
 getAddNResult x y =
-  evalExpr'(((usrVal_ "addN" <:> [val_ $ IntLit x]).:"result"<:> [val_ $ IntLit y]))
+  evalExpr'(usrT_ "addN" [val_ $ IntLit x].:"result"<:> [val_ $ IntLit y])
 
 makeList args =
-  evalExpr' (usrVal_ "list" <:> args)
+  evalExpr' (usrT_ "list" args)
 
 makeAndGetTail args =
-  evalExpr (Id "bob") (((usrVal_ "list" <:> args).:"tail").:"tail")
+  evalExpr (Id "bob") (usrT_ "list" args.:"tail".:"tail".:"head")
 
 compileTest p t = evalSymbols (Map.fromList []) (p >> t)
 
@@ -68,8 +68,8 @@ betaReductionTest i j = isRight
 nestingExpr i j = isRight
                 . compileTest program
                 . getAddValue $
-                  [ (usrVal_ "add" <:> [val_ $ IntLit i, val_ $ IntLit j]).: "value"
-                  , (usrVal_ "add" <:> [val_ $ IntLit i, val_ $ IntLit j]).: "value"
+                  [ usrT_ "add"[val_ $ IntLit i, val_ $ IntLit j].: "value"
+                  , usrT_ "add"[val_ $ IntLit i, val_ $ IntLit j].: "value"
                   ]
 
 tooFewTempArgs = isLeft
@@ -105,13 +105,14 @@ printResult (Left l) = print l
 
 main :: IO ()
 main = do
-  quickCheck betaReductionTest
-  quickCheck nestingExpr
-  quickCheck tooFewTempArgs
-  quickCheck tooManyTempArgs
-  quickCheck wrongTempArgType
-  quickCheck innerExprBetaReduction
-  quickCheck typePackWorks
-  quickCheck typePackSpec
-  -- printResult (compileTest program $ makeAndGetTail [val_ INT, val_ CHAR, val_ BOOL])
-  -- printResult (compileTest program $ getAddNResult 1 1)
+  -- quickCheck betaReductionTest
+  -- quickCheck nestingExpr
+  -- quickCheck tooFewTempArgs
+  -- quickCheck tooManyTempArgs
+  -- quickCheck wrongTempArgType
+  -- quickCheck innerExprBetaReduction
+  -- quickCheck typePackWorks
+  -- quickCheck typePackSpec
+  printResult (compileTest program $ makeAndGetTail [val_ INT, val_ CHAR, val_ BOOL])
+  -- printResult (compileTest program $ makeList [val_ INT, val_ CHAR, val_ BOOL])
+  printResult (compileTest program $ getAddNResult 1 1)

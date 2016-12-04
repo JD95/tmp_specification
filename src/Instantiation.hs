@@ -30,15 +30,21 @@ import Data.Either
 type BetaReduction a = State [(MetaArg, Value)] (Either String a)
 
 
-betaLookup :: forall a. Either MetaArg Value -> BetaReduction FExpr
+betaLookup :: Either MetaArg Value -> BetaReduction FExpr
+betaLookup (Right (USRT i ts)) = do
+  ts' <- sequence . fmap (reduceExpr . InExpr) $ ts
+  case sequence $ ts' of
+    Right ts'' -> return . Right . inFExpr $ Type (Right (USRT i (fmap outExpr ts'')))
+    other -> return . Left $ "Beta lookup failed"
+
 betaLookup (Right v) = return . Right . inFExpr $ Type (Right v)
 betaLookup (Left marg) = get >>= \maps -> case lookup marg maps of
               Just PLACEHOLD -> return . Right . inFExpr $ Type (Left marg)
               Just v -> return . Right . inFExpr $ Type (Right v)
               Nothing -> return . Left $ "Templated type was not instantiated!"
 
-reduceExpr :: Id -> FExpr -> BetaReduction FExpr
-reduceExpr i = outExpr >>> F.cata f
+reduceExpr :: FExpr -> BetaReduction FExpr
+reduceExpr = outExpr >>> F.cata f
   where f :: Expr (BetaReduction FExpr) -> BetaReduction FExpr
         f (Type t) = betaLookup t
 
@@ -87,7 +93,7 @@ betaReduce maps = F.cata f >>> flip evalState maps
         -- If is a single template value, replace it with the mapped Value.
         f (Single i v) = get >>= \maps ->
           return . fmap (inFMetaValue . Single i)
-                 . (`evalState` maps) $ reduceExpr i  v
+                 . (`evalState` maps) $ reduceExpr  v
 
         -- Unpack group and reduce each line, repacking the group if each
         -- line has a successful reduction.

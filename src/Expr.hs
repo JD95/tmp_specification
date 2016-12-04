@@ -59,14 +59,14 @@ evalScope :: Id -> FMetaValue -> Symbols FMetaValue
 evalScope i = outMetaValue >>> F.unfix >>> f
   where f (Template mi _) = symbolError $ "Template " ++ show mi ++ " must be instantiated before inner types can be used!"
         f (Single mi v) = symbolError $ show i ++ " has no types to resolve!"
-        f (Group _ vs) = evalMember i <=< groupMemberFind i . fmap InMetaValue $ vs
+        f (Group _ vs) = evalMember <=< groupMemberFind i . fmap InMetaValue $ vs
 
-evalMember :: Id -> FMetaValue -> Symbols FMetaValue
-evalMember i = outMetaValue >>> F.unfix >>> f
+evalMember :: FMetaValue -> Symbols FMetaValue
+evalMember = outMetaValue >>> F.unfix >>> f
   where f :: MetaValue (F.Fix MetaValue) -> Symbols FMetaValue
         f (Single mi v) = evalExpr mi (outExpr v)
-        f (Group mi vs) = (inFMetaValue . Group i . fmap outMetaValue)
-                      <$> (sequence . fmap (evalMember i . InMetaValue) $ vs)
+        f (Group mi vs) = (inFMetaValue . Group mi . fmap outMetaValue)
+                      <$> (sequence . fmap (evalMember . InMetaValue) $ vs)
         f (Template mi ss) = return . inFMetaValue $ Template mi ss
 
 evalArgs tbl = join
@@ -86,10 +86,9 @@ evalExpr mi = F.cata f
 
         -- Template instantiation
         f (Instantiate e args) = (Lookup $ \tbl -> do
-          let e' = evalSymbols tbl e
-          let args' = evalArgs tbl args
-          join $ pure instantiate <*> e' <*> args')
-          >>= evalMember mi
+          e' <- evalSymbols tbl e
+          args' <- evalArgs tbl args
+          instantiate e' args') >>= evalMember
 
         -- Math Operations
         f (ADD x y) = evalBinaryOp mi addition x y
@@ -99,4 +98,12 @@ evalExpr mi = F.cata f
 
         -- A single type
         f (Type (Right (USR t))) = lookupId t
+
+        -- Templated Type
+        f (Type (Right (USRT i ts))) = do
+          i' <- lookupId i
+          (Lookup $ \tbl -> do
+            ts' <- evalArgs tbl . fmap (evalExpr i) $ ts
+            instantiate i' ts')
+
         f (Type t) = pure (inFMetaValue (Single mi (inFExpr $ Type t)))
