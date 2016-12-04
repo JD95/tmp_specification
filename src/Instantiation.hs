@@ -41,13 +41,21 @@ reduceExpr :: Id -> FExpr -> BetaReduction FExpr
 reduceExpr i = outExpr >>> F.cata f
   where f :: Expr (BetaReduction FExpr) -> BetaReduction FExpr
         f (Type t) = betaLookup t
+
         f (Scope e i) = get >>= \maps ->
           return . fmap (inFExpr . flip Scope i . outExpr) $ evalState e maps
+
         f (Instantiate e args) = get >>= \maps -> do
           let e' = evalState e maps
           let args' = sequence . fmap (`evalState` maps) $ args
           return . fmap (inFExpr . fmap outExpr)
                  $ pure Instantiate <*> e' <*> args'
+
+        f (ADD x y) = get >>= \maps -> do
+          let x' = evalState x maps
+          let y' = evalState y maps
+          return . fmap (inFExpr . fmap outExpr)
+                 $ pure ADD <*> x' <*> y'
 
 reduceLine :: [(MetaArg, Value)] -> Line (BetaReduction a) () -> Either String a
 reduceLine maps (Line br _) = evalState br maps
@@ -121,12 +129,19 @@ rankSpecialization vs (margs, mv) = pure . (\i -> (i, margs, mv))
         comprArg (Tbool _) (BoolLit _) = Right 4
         comprArg _ _ = Left "Template arg mismatch"
 
+expandPack :: Value -> [Value]
+expandPack (PACK [v]) = [v]
+expandPack (PACK vs)= vs
+expandPack v = [v]
+
 matchTArgs :: [MetaArg] -> [Value] -> Either String [(MetaArg, Value)]
-matchTArgs margs vs =
+matchTArgs margs ts =
+  let vs = concatMap expandPack ts in
   case break isTlist margs of
     (ts, [])  -> if length ts == length vs
                  then Right (zip ts vs)
                  else Left "Wrong number of template Argumenets"
-    (ts, [lst]) -> let (vs', lstVs) = splitAt (length ts) vs in
-                 let pack = [(lst, PACK lstVs)] in
-                 Right (zip ts vs' ++ pack)
+    (ts, [lst]) -> case splitAt (length ts) vs of
+                   (vs', []) -> Right (zip ts vs)
+                   (vs', lstVs) -> let pack = [(lst, PACK lstVs)] in
+                                   Right (zip ts vs' ++ pack)

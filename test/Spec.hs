@@ -12,36 +12,52 @@ import Value
 import MetaValue
 import Symbols
 import Expr
+import MathExpr
+import BooleanExpr
 import Lib
 import Instantiation
 
+basicMathOp f name = InMetaValue . lined $ template name $
+   spec [arg_ Tint "x", arg_ Tint "y"] $ lined .
+     group name $ single (InExpr $ f (tmp_ Tint "x") (tmp_ Tint "y")) "value"
+
+define' = define . InMetaValue . lined
+
 program = do
-  define . InMetaValue . lined $ template "add" $
-     spec [arg_ Tint "x", arg_ Tint "y"] $ lined .
-       group "add" $ do
-         single (InExpr $ tmp_ Tint "x") "value"
+  define $ basicMathOp (+:) "add"
+  define $ basicMathOp (-:) "sub"
+  define $ basicMathOp (*:) "mul"
+  define $ basicMathOp (/:) "div"
 
-  define . InMetaValue . lined $ template "addN" $
-    spec [arg_ Tint "N"] $ lined .
-      group "addN" $ do
-        single (InExpr $ tmp_ Tint "N") "value"
-        template "result" $ spec [arg_ Tint "x"] $ lined $
-          single (InExpr $ (usrVal_ "add" <:> [tmp_ Tint "x", val_ $ IntLit 1]).: "value") "result"
+  define' $ template "addN" $
+    spec [arg_ Tint "N"] $ lined . group "addN" $ do
+      single (InExpr $ tmp_ Tint "N") "value"
+      template "result" $ spec [arg_ Tint "x"] $ lined $
+        single (InExpr $ (usrVal_ "add" <:> [tmp_ Tint "x", val_ $ IntLit 1]).: "value") "result"
 
-  define . InMetaValue . lined $ template "list" $
-    spec [arg_ Targ "H", arg_ Tlist "T"]$ lined .
-      group "list" $ do
-        single (InExpr $ tmp_ Targ "H") "head"
-        single (InExpr $ tmp_ Tlist "T") "tail"
+  define . InMetaValue . lined $ template "list" $ do
+
+--  template <class H, class ...T>
+    spec [arg_ Targ "H", arg_ Tlist "T"]$ lined . group "list" $ do
+--    using head = H;
+      single (InExpr $ tmp_ Targ "H") "head"
+--    using tail = list<T...>;
+      single (InExpr $ usrVal_ "list" <:> [tmp_ Tlist "T"]) "tail"
+
+    spec [arg_ Targ "H"]$ lined . group "list" $
+      single (InExpr $ tmp_ Targ "H") "head"
 
 getAddValue args =
-  evalExpr' ((usrVal_ "add" <:> args).: "value")
+  evalExpr' ((usrVal_ "add" <:> args).:"value")
 
 getAddNResult x y =
-  evalExpr'((usrVal_ "addN" <:> [val_ $ IntLit x]).:"result"<:> [val_ $ IntLit y])
+  evalExpr'(((usrVal_ "addN" <:> [val_ $ IntLit x]).:"result"<:> [val_ $ IntLit y]))
 
 makeList args =
   evalExpr' (usrVal_ "list" <:> args)
+
+makeAndGetTail args =
+  evalExpr (Id "bob") (((usrVal_ "list" <:> args).:"tail").:"tail")
 
 compileTest p t = evalSymbols (Map.fromList []) (p >> t)
 
@@ -80,6 +96,13 @@ typePackWorks = isRight
               . compileTest program
               $ makeList [val_ INT, val_ CHAR, val_ BOOL]
 
+typePackSpec = isRight
+             . compileTest program
+             $ makeAndGetTail [val_ INT, val_ CHAR, val_ BOOL]
+
+printResult (Right r) = print r
+printResult (Left l) = print l
+
 main :: IO ()
 main = do
   quickCheck betaReductionTest
@@ -89,3 +112,6 @@ main = do
   quickCheck wrongTempArgType
   quickCheck innerExprBetaReduction
   quickCheck typePackWorks
+  quickCheck typePackSpec
+  -- printResult (compileTest program $ makeAndGetTail [val_ INT, val_ CHAR, val_ BOOL])
+  -- printResult (compileTest program $ getAddNResult 1 1)

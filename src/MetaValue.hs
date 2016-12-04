@@ -37,6 +37,15 @@ import Value
 
 data Expr a = Scope a Id -- someClass::value
             | Instantiate a [a] -- add<1,2>
+            | ADD a a
+            | SUB a a
+            | MUL a a
+            | DIV a a
+            | NOT a
+            | AND a a
+            | OR a a
+            | EQ a a
+            | GT a a
             | Type (Either MetaArg Value)
               deriving (Functor)
 
@@ -103,7 +112,7 @@ showCommaList = intercalate "," . map show
 instance Show FMetaValue where
   show = outMetaValue >>> F.cata f
     where f (Single i v) = if show i == "" then show v else show v ++ " " ++ show i
-          f (Group i vs) = "struct " ++ show i ++ "{\n" ++ members ++ "};\n"
+          f (Group i vs) = "group " ++ show i ++ "{\n" ++ members ++ "};\n"
             where members = concatMap ((\m -> "\t" ++ m ++ "\n") . show) vs
           f (Template i ss) = concatMap (\(args, v) -> "template<" ++ showCommaList args ++ "> " ++ show v ++ "\n") ss
 
