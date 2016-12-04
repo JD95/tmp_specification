@@ -29,10 +29,11 @@ import Data.Either
 
 type BetaReduction a = State [(MetaArg, Value)] (Either String a)
 
+
 betaLookup :: forall a. Either MetaArg Value -> BetaReduction FExpr
 betaLookup (Right v) = return . Right . inFExpr $ Type (Right v)
 betaLookup (Left marg) = get >>= \maps -> case lookup marg maps of
-              Just VOID -> return . Right . inFExpr $ Type (Left marg)
+              Just PLACEHOLD -> return . Right . inFExpr $ Type (Left marg)
               Just v -> return . Right . inFExpr $ Type (Right v)
               Nothing -> return . Left $ "Templated type was not instantiated!"
 
@@ -56,7 +57,7 @@ repackGroup :: Id -> [F.Fix MetaValue] -> FMetaValue
 repackGroup i = inFMetaValue . Group i
 
 reduceTemplate :: [(MetaArg, Value)] -> ([MetaArg], BetaReduction a) -> Either String a
-reduceTemplate maps = uncurry (flip evalState) . first ((++) maps . fmap (flip (,) VOID))
+reduceTemplate maps = uncurry (flip evalState) . first ((++) maps . fmap (flip (,) PLACEHOLD))
 
 repackTemplate i args = inFMetaValue . Template i . zip args
 
@@ -66,10 +67,10 @@ getTypeValue = outExpr >>> F.unfix >>> f
         f _ = Left "Is not a type"
 
 dummy :: BetaReduction FMetaValue
-dummy = return . Right . inFMetaValue $ Single (Id "") (InExpr $ val_ VOID)
+dummy = return . Right . inFMetaValue $ Single (Id "") (InExpr $ val_ PLACEHOLD)
 
 exprDummy :: BetaReduction FExpr
-exprDummy = return . Right . inFExpr $ Type (Right VOID)
+exprDummy = return . Right . inFExpr $ Type (Right PLACEHOLD)
 
 betaReduce :: [(MetaArg, Value)] -> F.Fix MetaValue -> Either String FMetaValue
 betaReduce maps = F.cata f >>> flip evalState maps
@@ -104,14 +105,6 @@ instantiate (InMetaValue (F.Fix (Template mi ss))) vs =
              . maximumBy (comparing (\(i,_,_) -> i)) $ ms
 instantiate mv _ = Left ("cannot instantiate " ++ show (metaId mv))
 
-matchTArgs :: [MetaArg] -> [Value] -> Either String [(MetaArg, Value)]
-matchTArgs margs vs = Right gs
-    where gs = case break isTlist margs of
-              (ts, [])  -> zip ts vs
-              (ts, [lst]) -> let (vs', lstVs) = splitAt (length ts) vs in
-                           let pack = [(lst, PACK lstVs)] in
-                           zip ts vs' ++ pack
-
 
 rankSpecialization :: [Value] -> ([MetaArg], z) -> Either String (Int, [MetaArg], z)
 rankSpecialization vs (margs, mv) = pure . (\i -> (i, margs, mv))
@@ -127,3 +120,13 @@ rankSpecialization vs (margs, mv) = pure . (\i -> (i, margs, mv))
         comprArg (Tint _) (IntLit _) = Right 4
         comprArg (Tbool _) (BoolLit _) = Right 4
         comprArg _ _ = Left "Template arg mismatch"
+
+matchTArgs :: [MetaArg] -> [Value] -> Either String [(MetaArg, Value)]
+matchTArgs margs vs =
+  case break isTlist margs of
+    (ts, [])  -> if length ts == length vs
+                 then Right (zip ts vs)
+                 else Left "Wrong number of template Argumenets"
+    (ts, [lst]) -> let (vs', lstVs) = splitAt (length ts) vs in
+                 let pack = [(lst, PACK lstVs)] in
+                 Right (zip ts vs' ++ pack)

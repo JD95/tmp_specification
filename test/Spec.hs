@@ -89,4 +89,3 @@ main = do
   quickCheck wrongTempArgType
   quickCheck innerExprBetaReduction
   quickCheck typePackWorks
-  print (matchTArgs [Targ (Id "H"), Tlist (Id "T")] [INT, CHAR, BOOL])

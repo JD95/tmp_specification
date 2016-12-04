@@ -38,6 +38,7 @@ data Value = INT
            | STATIC Value
            | USR Id
            | PACK [Value]
+           | PLACEHOLD  -- Needed for template instantiation
              deriving (Eq, Ord)
 
 
