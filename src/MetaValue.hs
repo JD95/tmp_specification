@@ -100,12 +100,6 @@ metaId = outMetaValue >>> F.unfix >>> f
 showCommaList :: Show a => [a] -> String
 showCommaList = intercalate "," . map show
 
--- showGroupLines :: MetaValue [String] -> [String]
--- showGroupLines g@(Single i v) = [show g]
--- showGroupLines g@(Template _ specializations) = [show g]
--- showGroupLines (Group i vs) = ["struct " ++ show i ++ "{"] ++ members ++ ["};"]
---   where members = concatMap (fmap ("\t" ++) . showGroupLines) . collapseGroupMembers $ vs
-
 instance Show FMetaValue where
   show = outMetaValue >>> F.cata f
     where f (Single i v) = if show i == "" then show v else show v ++ " " ++ show i

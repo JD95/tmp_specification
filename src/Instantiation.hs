@@ -1,7 +1,8 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
 module Instantiation (
-  instantiate
+  instantiate,
+  matchTArgs
 ) where
 
 import Control.Arrow
@@ -104,14 +105,11 @@ instantiate (InMetaValue (F.Fix (Template mi ss))) vs =
 instantiate mv _ = Left ("cannot instantiate " ++ show (metaId mv))
 
 matchTArgs :: [MetaArg] -> [Value] -> Either String [(MetaArg, Value)]
-matchTArgs margs vs
-  | length margs > length vs = Left "To few template args"
-  | length margs < length vs = Left "To many template args"
-  | otherwise = Right $ gs
+matchTArgs margs vs = Right gs
     where gs = case break isTlist margs of
               (ts, [])  -> zip ts vs
-              (ts, lst) -> let (vs', lstVs) = splitAt (length ts - 1) vs in
-                           let pack = if null lst then [] else [(head lst, PACK lstVs)] in
+              (ts, [lst]) -> let (vs', lstVs) = splitAt (length ts) vs in
+                           let pack = [(lst, PACK lstVs)] in
                            zip ts vs' ++ pack
 
 
