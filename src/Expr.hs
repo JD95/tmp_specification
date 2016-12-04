@@ -4,7 +4,8 @@ module Expr(
   (.:),
   (<:>),
   groupMemberFind,
-  evalExpr
+  evalExpr,
+  evalExpr'
 ) where
 
 import qualified Data.Functor.Foldable as F
@@ -44,7 +45,7 @@ evalScope i = outMetaValue >>> F.unfix >>> f
 evalMember :: FMetaValue -> Symbols FMetaValue
 evalMember = outMetaValue >>> F.unfix >>> f
   where f :: MetaValue (F.Fix MetaValue) -> Symbols FMetaValue
-        f (Single _ v) = evalExpr (outExpr v)
+        f (Single mi v) = evalExpr mi (outExpr v)
         f (Group mi vs) = (inFMetaValue . Group mi . fmap outMetaValue)
                       <$> (sequence . fmap (evalMember . InMetaValue) $ vs)
         f (Template mi ss) = return . inFMetaValue $ Template mi ss
@@ -54,18 +55,21 @@ evalArgs tbl = join
              . sequence
              . fmap (evalSymbols tbl)
 
-evalExpr :: F.Fix Expr -> Symbols FMetaValue
-evalExpr = F.cata f
+evalExpr' = evalExpr (Id "")
+
+evalExpr :: Id -> F.Fix Expr -> Symbols FMetaValue
+evalExpr mi = F.cata f
   where f :: Expr (Symbols FMetaValue) -> Symbols FMetaValue
         -- Scope resolution
         f (Scope e i) =  e >>= evalScope i
 
         -- Template instantiation
-        f (Instantiate e args) = Lookup $ \tbl -> do
+        f (Instantiate e args) = (Lookup $ \tbl -> do
           let e' = evalSymbols tbl e
           let args' = evalArgs tbl args
-          join $ pure instantiate <*> e' <*> args'
+          join $ pure instantiate <*> e' <*> args')
+          >>= evalMember
 
         -- A single type
         f (Type (Right (USR t))) = lookupId t
-        f (Type t) = pure (inFMetaValue (Single (Id "") (inFExpr $ Type t)))
+        f (Type t) = pure (inFMetaValue (Single mi (inFExpr $ Type t)))

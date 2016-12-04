@@ -23,19 +23,19 @@ program = do
   define . InMetaValue . lined $ template "addN" $
     spec [arg_ Tint "N"] $ lined . group "addN" $ do
       single (InExpr $ tmp_ Tint "N") "value"
-      -- template "func" $ spec [arg_ Tint "x"] $ lined $
-      --  single (InExpr $ (usrVal_ "add" <:> [tmp_ Tint "x", val_ $ IntLit 1]).:"value") "result"
+      template "result" $ spec [arg_ Tint "x"] $ lined $
+       single (InExpr $ (usrVal_ "add" <:> [tmp_ Tint "x", val_ $ IntLit 1]).: "value") "result"
 
-      single (InExpr $ (usrVal_ "add" <:> [val_ $ IntLit 1, val_ $ IntLit 1]).:"value") "result"
+      --single (InExpr $ (usrVal_ "add" <:> [val_ $ IntLit 1, val_ $ IntLit 1]).:"value") "result"
 
 add = usrVal_ "add"
 
 addN = usrVal_ "addN"
 
-getAddValue args = evalExpr ((add <:> args).: "value")
+getAddValue args = evalExpr' ((add <:> args).: "value")
 
 getAddNResult x y =
-  evalExpr(((addN <:> [val_ $ IntLit x]).:"result"))
+  evalExpr'(((addN <:> [val_ $ IntLit x]).:"result"<:> [val_ $ IntLit y]))
 
 compileTest p t = evalSymbols (Map.fromList []) (p >> t)
 
@@ -73,10 +73,10 @@ innerExprBetaReduction = isRight
 
 main :: IO ()
 main = do
-  -- quickCheck betaReductionTest
-  -- quickCheck nestingExpr
-  -- quickCheck tooFewTempArgs
-  -- quickCheck tooManyTempArgs
-  -- quickCheck wrongTempArgType
-  -- quickCheck innerExprBetaReduction
+  quickCheck betaReductionTest
+  quickCheck nestingExpr
+  quickCheck tooFewTempArgs
+  quickCheck tooManyTempArgs
+  quickCheck wrongTempArgType
+  quickCheck innerExprBetaReduction
   print (compileTest program $ getAddNResult 1 1)

@@ -31,6 +31,7 @@ type BetaReduction a = State [(MetaArg, Value)] (Either String a)
 betaLookup :: forall a. Either MetaArg Value -> BetaReduction FExpr
 betaLookup (Right v) = return . Right . inFExpr $ Type (Right v)
 betaLookup (Left marg) = get >>= \maps -> case lookup marg maps of
+              Just VOID -> return . Right . inFExpr $ Type (Left marg)
               Just v -> return . Right . inFExpr $ Type (Right v)
               Nothing -> return . Left $ "Templated type was not instantiated!"
 
