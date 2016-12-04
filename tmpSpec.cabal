@@ -23,12 +23,16 @@ library
                      , Value
                      , MathExpr
                      , BooleanExpr
+                     , Tests.List
+                     , Tests.Instantiation
+                     , Tests.Utility
   build-depends:       base >= 4.7 && < 5
                      , recursion-schemes
                      , containers
                      , free
                      , bifunctors
                      , mtl
+                     , QuickCheck
   default-language:    Haskell2010
 
 executable tmpSpec-exe
@@ -45,7 +49,6 @@ test-suite tmpSpec-test
   main-is:             Spec.hs
   build-depends:       base
                      , tmpSpec
-                     , QuickCheck
                      , free
                      , recursion-schemes
                      , containers
