@@ -48,6 +48,14 @@ program = do
         single (InExpr $ usrT_ "add" [tmp_ Tint "x", val_ (IntLit 1)]) "result"
 --};
 
+  define' $ template "If" $ do
+
+    spec [boolVal_ True, class_ "T", class_ "F"] $ lined . group "If" $
+      single (InExpr $ tmp_ Targ "T") "path"
+
+    spec [boolVal_ False, class_ "T", class_ "F"] $ lined . group "If" $
+      single (InExpr $ tmp_ Targ "F") "path"
+
 -- FOR DEMOS ------------------------------------------------------------------
 binaryMathOp :: String -> Int -> Int -> IO ()
 binaryMathOp name x y =
@@ -59,6 +67,13 @@ add = binaryMathOp "add"
 sub = binaryMathOp "sub"
 mult = binaryMathOp "mul"
 divide = binaryMathOp "div"
+
+testIf :: Bool -> IO ()
+testIf b = printResult
+         . compileTest program
+         . evalExpr'
+         $ (usrT_ "If" [val_ $ BoolLit b, val_ INT, val_ CHAR].:"path")
+
 -------------------------------------------------------------------------------
 
 getAddValue args =

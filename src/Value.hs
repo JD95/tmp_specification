@@ -30,7 +30,9 @@ module Value(
   inFExpr,
   getValue,
   int_,
-  bool_
+  bool_,
+  intVal_,
+  boolVal_
 ) where
 
 import qualified Data.Functor.Foldable as F
@@ -91,6 +93,8 @@ instance Show Value where
 data MetaArg = Targ Id
              | Tint Id
              | Tbool Id
+             | TintValue Int
+             | TboolValue Bool
              | Tlist Id
              deriving (Ord)
 
@@ -100,6 +104,8 @@ instance Eq MetaArg where
 metaArgId (Targ i) = i
 metaArgId (Tint i) = i
 metaArgId (Tbool i) = i
+metaArgId (TboolValue i) = Id (show i)
+metaArgId (TintValue i) = Id (show i)
 metaArgId (Tlist i) = i
 
 -- Makes the definitions look nicer
@@ -107,6 +113,9 @@ class_ = Targ . Id
 list_ = Tlist . Id
 int_ = Tint . Id
 bool_ = Tbool . Id
+
+intVal_ = TintValue
+boolVal_ = TboolValue
 
 isTlist (Tlist _) = True
 isTlist _ = False

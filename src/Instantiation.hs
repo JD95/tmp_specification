@@ -133,6 +133,12 @@ rankSpecialization vs (margs, mv) = pure . (\i -> (i, margs, mv))
         comprArg (Targ _) _ = Right 2
         comprArg (Tint _) (IntLit _) = Right 4
         comprArg (Tbool _) (BoolLit _) = Right 4
+        comprArg (TboolValue a) (BoolLit b) = if a == b
+                                              then Right 10
+                                              else Left "Not same boolean value"
+        comprArg (TintValue a) (IntLit b) = if a == b
+                                            then Right 10
+                                            else Left "Not same boolean value"
         comprArg _ _ = Left "Template arg mismatch"
 
 expandPack :: Value -> [Value]
